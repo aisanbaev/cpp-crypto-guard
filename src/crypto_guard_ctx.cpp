@@ -13,65 +13,12 @@ public:
     ~Impl() { EVP_cleanup(); }
 
     void EncryptFile(std::iostream &inStream, std::iostream &outStream, std::string_view password) {
-        if (!inStream.good()) {
-            throw std::runtime_error("Input stream failure");
-        }
-        if (!outStream.good()) {
-            throw std::runtime_error("Output stream failure");
-        }
-
-        auto params = CreateChiperParamsFromPassword(password);
-        params.encrypt = 1;
-
-        auto ctxDeleter = [](EVP_CIPHER_CTX *ctx) {
-            if (ctx)
-                EVP_CIPHER_CTX_free(ctx);
-        };
-        std::unique_ptr<EVP_CIPHER_CTX, decltype(ctxDeleter)> ctx(EVP_CIPHER_CTX_new(), ctxDeleter);
-
-        if (!EVP_CipherInit_ex(ctx.get(), params.cipher, nullptr, params.key.data(), params.iv.data(),
-                               params.encrypt)) {
-            throw std::runtime_error("Failed to initialize cipher");
-        }
-
-        constexpr size_t BUFFER_SIZE = 1024;
-        std::vector<unsigned char> inBuf(BUFFER_SIZE);
-        std::vector<unsigned char> outBuf(BUFFER_SIZE + EVP_MAX_BLOCK_LENGTH);
-        int outLen;
-
-        while (inStream.good()) {
-            inStream.read(reinterpret_cast<char *>(inBuf.data()), BUFFER_SIZE);
-            int inLen = static_cast<int>(inStream.gcount());
-
-            if (inLen <= 0) {
-                break;
-            }
-
-            if (!outStream.good()) {
-                throw std::runtime_error("Output stream failure during encryption");
-            }
-
-            if (!EVP_CipherUpdate(ctx.get(), outBuf.data(), &outLen, inBuf.data(), inLen)) {
-                throw std::runtime_error("Failed to update cipher");
-            }
-
-            outStream.write(reinterpret_cast<const char *>(outBuf.data()), outLen);
-            if (!outStream.good()) {
-                throw std::runtime_error("Failed to write to output stream");
-            }
-        }
-
-        if (!EVP_CipherFinal_ex(ctx.get(), outBuf.data(), &outLen)) {
-            throw std::runtime_error("Failed to finalize cipher");
-        }
-
-        outStream.write(reinterpret_cast<const char *>(outBuf.data()), outLen);
-        if (!outStream.good()) {
-            throw std::runtime_error("Failed to write final data to output stream");
-        }
+        ProcessFile(inStream, outStream, password, true);
     }
 
-    void DecryptFile(std::iostream &inStream, std::iostream &outStream, std::string_view password) {}
+    void DecryptFile(std::iostream &inStream, std::iostream &outStream, std::string_view password) {
+        ProcessFile(inStream, outStream, password, false);
+    }
 
     std::string CalculateChecksum(std::iostream &inStream) { return "NOT_IMPLEMENTED"; }
 
@@ -99,6 +46,66 @@ private:
         }
 
         return params;
+    }
+
+    void ProcessFile(std::iostream &inStream, std::iostream &outStream, std::string_view password, bool isEncryption) {
+        if (!inStream.good()) {
+            throw std::runtime_error{"Input stream failure"};
+        }
+        if (!outStream.good()) {
+            throw std::runtime_error{"Output stream failure"};
+        }
+
+        auto params = CreateChiperParamsFromPassword(password);
+        params.encrypt = isEncryption ? 1 : 0;
+
+        auto ctxDeleter = [](EVP_CIPHER_CTX *ctx) {
+            if (ctx) {
+                EVP_CIPHER_CTX_free(ctx);
+            }
+        };
+        std::unique_ptr<EVP_CIPHER_CTX, decltype(ctxDeleter)> ctx(EVP_CIPHER_CTX_new(), ctxDeleter);
+
+        if (!ctx) {
+            throw std::runtime_error{"Failed to create cipher context"};
+        }
+
+        if (!EVP_CipherInit_ex(ctx.get(), params.cipher, nullptr, params.key.data(), params.iv.data(),
+                               params.encrypt)) {
+            throw std::runtime_error{"Failed to initialize cipher"};
+        }
+
+        constexpr size_t BUFFER_SIZE = 1024;
+        std::vector<unsigned char> inBuf(BUFFER_SIZE);
+        std::vector<unsigned char> outBuf(BUFFER_SIZE + EVP_MAX_BLOCK_LENGTH);
+        int outLen;
+
+        while (inStream.good()) {
+            inStream.read(reinterpret_cast<char *>(inBuf.data()), BUFFER_SIZE);
+            int inLen = static_cast<int>(inStream.gcount());
+
+            if (inLen <= 0) {
+                break;
+            }
+
+            if (!EVP_CipherUpdate(ctx.get(), outBuf.data(), &outLen, inBuf.data(), inLen)) {
+                throw std::runtime_error{"Failed to update cipher"};
+            }
+
+            outStream.write(reinterpret_cast<const char *>(outBuf.data()), outLen);
+            if (!outStream.good()) {
+                throw std::runtime_error{"Failed to write to output stream"};
+            }
+        }
+
+        if (!EVP_CipherFinal_ex(ctx.get(), outBuf.data(), &outLen)) {
+            throw std::runtime_error{"Failed to finalize cipher"};
+        }
+
+        outStream.write(reinterpret_cast<const char *>(outBuf.data()), outLen);
+        if (!outStream.good()) {
+            throw std::runtime_error{"Failed to write final data to output stream"};
+        }
     }
 };
 
