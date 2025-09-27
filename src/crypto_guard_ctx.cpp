@@ -1,7 +1,10 @@
 #include "crypto_guard_ctx.h"
 #include <array>
+#include <iomanip>
 #include <memory>
+#include <openssl/err.h>
 #include <openssl/evp.h>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -20,7 +23,62 @@ public:
         ProcessFile(inStream, outStream, password, false);
     }
 
-    std::string CalculateChecksum(std::iostream &inStream) { return "NOT_IMPLEMENTED"; }
+    std::string CalculateChecksum(std::iostream &inStream) {
+        if (!inStream.good()) {
+            throw std::runtime_error{"Input stream failure"};
+        }
+
+        auto mdCtxDeleter = [](EVP_MD_CTX *ctx) {
+            if (ctx) {
+                EVP_MD_CTX_free(ctx);
+            }
+        };
+        std::unique_ptr<EVP_MD_CTX, decltype(mdCtxDeleter)> ctx(EVP_MD_CTX_new(), mdCtxDeleter);
+
+        if (!ctx) {
+            throw std::runtime_error{"Failed to create cipher context"};
+        }
+
+        const EVP_MD *md = EVP_sha256();
+        if (!EVP_DigestInit_ex2(ctx.get(), md, NULL)) {
+            throw std::runtime_error{"Message digest initialization failed"};
+        }
+
+        constexpr size_t BUFFER_SIZE = 1024;
+        std::vector<char> buffer(BUFFER_SIZE);
+
+        while (inStream.good()) {
+            inStream.read(buffer.data(), BUFFER_SIZE);
+            int bytesRead = static_cast<int>(inStream.gcount());
+
+            if (bytesRead <= 0) {
+                break;
+            }
+
+            if (!inStream.good() && !inStream.eof()) {
+                throw std::runtime_error{"Input stream failure during read"};
+            }
+
+            if (!EVP_DigestUpdate(ctx.get(), buffer.data(), bytesRead)) {
+                throw std::runtime_error{"Message digest update failed"};
+            }
+        }
+
+        unsigned char md_value[EVP_MAX_MD_SIZE];
+        unsigned int md_len;
+
+        if (!EVP_DigestFinal_ex(ctx.get(), md_value, &md_len)) {
+            throw std::runtime_error{"Message digest finalization failed"};
+        }
+
+        std::stringstream ss;
+        ss << std::hex << std::setfill('0');
+        for (unsigned int i = 0; i < md_len; ++i) {
+            ss << std::setw(2) << static_cast<unsigned int>(md_value[i]);
+        }
+
+        return ss.str();
+    }
 
 private:
     struct AesCipherParams {

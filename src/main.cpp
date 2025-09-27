@@ -76,9 +76,12 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-        case COMMAND_TYPE::CHECKSUM:
-            std::print("Checksum: {}\n", "CHECKSUM_NOT_IMPLEMENTED");
+        case COMMAND_TYPE::CHECKSUM: {
+            auto inputFile = openInputFile(options.GetInputFile());
+            std::string checksum = cryptoCtx.CalculateChecksum(inputFile);
+            std::print("Checksum: {}\n", checksum);
             break;
+        }
 
         default:
             throw std::runtime_error{"Unsupported command"};
