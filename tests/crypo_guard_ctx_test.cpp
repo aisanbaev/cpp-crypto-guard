@@ -302,4 +302,26 @@ TEST(CryptoGuardCalculateChecksum, ChecksumBeforeAfterEncryption) {
     EXPECT_EQ(decrypted_data, original_data);
 }
 
+TEST(CryptoGuardDataIntegrity, DecryptFailsWithTruncatedData) {
+    CryptoGuardCtx ctx;
+
+    std::string original_data = "Test data that will be encrypted and then corrupted";
+    std::stringstream input_stream(original_data);
+    std::stringstream encrypted_stream;
+    std::stringstream decrypted_stream;
+
+    // Зашифровываем данные
+    ctx.EncryptFile(input_stream, encrypted_stream, "test_password");
+    std::string encrypted_data = encrypted_stream.str();
+
+    EXPECT_FALSE(encrypted_data.empty());
+
+    // Обрезаем часть зашифрованных данных
+    std::string truncated_encrypted_data = encrypted_data.substr(0, encrypted_data.length() - 10);
+
+    // Пытаемся расшифровать обрезанные данные
+    std::stringstream truncated_input(truncated_encrypted_data);
+    ASSERT_THROW(ctx.DecryptFile(truncated_input, decrypted_stream, "test_password"), std::runtime_error);
+}
+
 }  // namespace CryptoGuard

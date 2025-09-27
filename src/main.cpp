@@ -7,27 +7,31 @@
 
 namespace {
 
-std::fstream openInputFile(const std::string &filename) {
-    std::fstream file(filename, std::ios::in | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open input file: " + filename);
-    }
-    return file;
-}
-
-std::fstream openOutputFile(const std::string &filename) {
-    std::fstream file(filename, std::ios::out | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot create output file: " + filename);
-    }
-    return file;
-}
-
-class AutoDeleteFile {
+class FileOpener {
 public:
-    AutoDeleteFile(const std::string &filename) : filename_(filename), shouldDelete_(true) {}
+    static std::fstream openInput(const std::string &filename) {
+        return openFile(filename, std::ios::in | std::ios::binary, "open input file");
+    }
 
-    ~AutoDeleteFile() {
+    static std::fstream openOutput(const std::string &filename) {
+        return openFile(filename, std::ios::out | std::ios::binary, "create output file");
+    }
+
+private:
+    static std::fstream openFile(const std::string &filename, std::ios::openmode mode, const std::string &action) {
+        std::fstream file(filename, mode);
+        if (!file.is_open()) {
+            throw std::runtime_error("Cannot " + action + ": " + filename);
+        }
+        return file;
+    }
+};
+
+class TemporaryFile {
+public:
+    TemporaryFile(const std::string &filename) : filename_(filename), shouldDelete_(true) {}
+
+    ~TemporaryFile() {
         if (shouldDelete_) {
             std::filesystem::remove(filename_);
         }
@@ -53,31 +57,31 @@ int main(int argc, char *argv[]) {
         switch (options.GetCommand()) {
 
         case COMMAND_TYPE::ENCRYPT: {
-            auto inputFile = openInputFile(options.GetInputFile());
-            auto outputFile = openOutputFile(options.GetOutputFile());
+            auto inputFile = FileOpener::openInput(options.GetInputFile());
+            auto outputFile = FileOpener::openOutput(options.GetOutputFile());
 
-            AutoDeleteFile autoDelete(options.GetOutputFile());
+            TemporaryFile tempOutput(options.GetOutputFile());
             cryptoCtx.EncryptFile(inputFile, outputFile, options.GetPassword());
-            autoDelete.commit();
+            tempOutput.commit();
 
             std::print("File encoded successfully\n");
             break;
         }
 
         case COMMAND_TYPE::DECRYPT: {
-            auto inputFile = openInputFile(options.GetInputFile());
-            auto outputFile = openOutputFile(options.GetOutputFile());
+            auto inputFile = FileOpener::openInput(options.GetInputFile());
+            auto outputFile = FileOpener::openOutput(options.GetOutputFile());
 
-            AutoDeleteFile autoDelete(options.GetOutputFile());
+            TemporaryFile tempOutput(options.GetOutputFile());
             cryptoCtx.DecryptFile(inputFile, outputFile, options.GetPassword());
-            autoDelete.commit();
+            tempOutput.commit();
 
             std::print("File decoded successfully\n");
             break;
         }
 
         case COMMAND_TYPE::CHECKSUM: {
-            auto inputFile = openInputFile(options.GetInputFile());
+            auto inputFile = FileOpener::openInput(options.GetInputFile());
             std::string checksum = cryptoCtx.CalculateChecksum(inputFile);
             std::print("Checksum: {}\n", checksum);
             break;
